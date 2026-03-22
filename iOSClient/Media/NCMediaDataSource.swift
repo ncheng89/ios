@@ -143,16 +143,19 @@ extension NCMedia {
             return
         }
 
-        let limit = await MainActor.run {
+        let requestedLimit = await MainActor.run {
             max(self.collectionView.visibleCells.count * 3, 300)
         }
+        // Ask for one extra result so we can tell whether this bounded date range
+        // is complete before deleting stale local metadata from the same window.
+        let searchLimit = requestedLimit + 1
 
         let options = NKRequestOptions(timeout: 180, taskDescription: self.global.taskDescriptionRetrievesProperties, queue: NextcloudKit.shared.nkCommonInstance.backgroundQueue)
 
         let result = await searchMediaAsync(path: tblAccount.mediaPath,
                                             lessDate: lessDate,
                                             greaterDate: greaterDate,
-                                            limit: limit,
+                                            limit: searchLimit,
                                             account: self.session.account,
                                             options: options) { task in
             Task {
@@ -171,6 +174,7 @@ extension NCMedia {
             }
             return
         }
+        let hasCompleteSearchResult = files.count <= requestedLimit
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else {
@@ -203,7 +207,7 @@ extension NCMedia {
 
             if await database.mergeRemoteMetadatasAsync(remoteMetadatas: remoteMetadatas,
                                                         localMetadatas: localMetadatas,
-                                                        deleteMissingLocalMetadatas: distant) {
+                                                        deleteMissingLocalMetadatas: hasCompleteSearchResult) {
                 await loadDataSource()
             } else if await self.dataSource.isEmpty() {
                 await self.collectionViewReloadData()
